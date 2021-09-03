@@ -1,0 +1,162 @@
+#!/bin/sh
+#
+
+PATH=/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/bcm:/bcm/script:/bcm/bin:/usr/exe:/usr/exe/whw/bin
+
+#DAEMON=/usr/sbin/dropbear
+NAME=iproutejf
+DESC="IP route y firewall de JF"
+
+ruta1="10.0.0.0/8 via 192.168.11.223 dev br0"
+ruta2="192.168.0.0/16 via 192.168.11.223 dev br0"
+fwrule1="POSTROUTING -s 192.168.22.0/24 -o ppp111 -j MASQUERADE"
+fwrule1check="/bin/iptables -t nat -S POSTROUTING"
+
+#set -e
+
+set_msg_e() {
+ if [ -z "$1" ]
+  then
+   msg_e=""
+  else
+   msg_e="$1"
+ fi
+}
+
+existe_g() {
+ if [ "$1" = "$2" ]                                                                                    
+  then                                                                                            
+   echo "Existe $msg_e ---> $1"                                                                 
+   return 0
+  else                                                                                            
+   echo "Falta $msg_e  ---> $1"                                                                           
+   return 1
+ fi        
+}
+
+set_msg_r() {
+ if [ -z "$1" ]
+  then
+   msgNO=""
+   msgSI=""
+  else
+   msgNO="$1"
+   msgSI="$2"
+ fi
+}
+
+run_g() {
+ if [ -z "$1" ]
+  then
+   echo "  ---> $msgNO"
+  else
+   echo "  ---> $msgSI" 
+   echo "     ---> $1"
+   $1
+ fi
+}
+
+
+check_fwrule() {
+ set_msg_e "fw  "
+ local fwcmd="$($fwrule1check | /bin/grep -o "$1")"
+ existe_g "$1" "$fwcmd"
+ return $?
+}
+
+check_route() {
+ set_msg_e "ruta"
+ local red="$(echo $1 | awk '{printf $1}')"
+ local cmdruta="$(echo -n $(/usr/sbin/ip route show $red))"
+ existe_g "$1" "$cmdruta"
+ return $?
+}
+
+
+set_fwrule() {
+ set_msg_r "NO se agrega regla de firewall" "Agregando regla de firewall"
+ check_fwrule "$1"
+ [ $? = 1 ] &&  run_g "/bin/iptables -t nat -A $1" || run_g ""
+}
+
+del_fwrule() {
+ set_msg_r "NO se requiere eliminar regla de firewall" "Eliminando regla de firewall"
+ check_fwrule "$1"
+ [ $? = 0  ] && run_g "/bin/iptables -t nat -D $1" || run_g ""
+}
+
+set_route() {
+ set_msg_r "NO se agrega ruta" "Agregando ruta"
+ check_route "$1"
+ [ $? = 1 ] &&  run_g "/usr/sbin/ip route add $1" || run_g ""
+}
+
+del_route() {
+ set_msg_r "NO se requiere eliminar ruta" "Eliminando ruta"
+ check_route "$1"
+ [ $? = 0 ] && run_g "/usr/sbin/ip route del $1" || run_g ""
+}
+
+
+check_fwrules() {
+ check_fwrule "$fwrule1"
+}
+set_fwrules() {
+ set_fwrule "$fwrule1"
+}
+del_fwrules() {
+ del_fwrule "$fwrule1"
+}
+check_routes() {
+ check_route "$ruta1"
+ check_route "$ruta2"
+}
+set_routes() {
+ set_route "$ruta1"
+ set_route "$ruta2"
+}
+del_routes() {
+ del_route "$ruta1"
+ del_route "$ruta2"
+}
+
+set_msg_r
+set_msg_e
+
+case "$1" in
+  start)
+        echo "$NAME."
+        set_routes
+        set_fwrules
+	;;
+  stop)
+	echo "Stopping $DESC: "
+	del_routes
+	del_fwrules
+	echo "$NAME."
+	;;
+  status)
+        /usr/sbin/ip route
+        echo --
+        $fwrule1check
+        echo --
+        check_routes
+        check_fwrules
+        ;;
+  restart|force-reload)
+	echo "Restarting $DESC: "
+        del_routes 
+        del_fwrules
+	set_routes
+	set_fwrules
+	echo "$NAME."
+	;;
+  *)
+#	N=/etc/init.d/$NAME
+	N=/configs/$NAME
+	echo "Usage: $N {start|stop|restart|force-reload|status}" >&2
+	exit 1
+	;;
+esac
+
+exit 0
